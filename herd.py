@@ -7,6 +7,7 @@ import eventlet
 import re
 import argparse
 import logging
+import configparser
 from eventlet.green import socket
 from eventlet.green import subprocess
 
@@ -56,6 +57,8 @@ murder_client = eventlet.import_patched('murder_client')
 bttrack = eventlet.import_patched('BitTornado.BT1.track')
 makemetafile = eventlet.import_patched('BitTornado.BT1.makemetafile')
 
+username=''
+password=''
 log = logging.getLogger('herd')
 log.setLevel(logging.DEBUG)
 # create console handler with a higher log level
@@ -93,6 +96,8 @@ def run(local_file, remote_file, hosts):
     threads = []
     remainingHosts = hosts      
     for host in hosts:
+        global username
+        host= '%s@%s'%(username,host)
         threads.append(pool.spawn(transfer, host, torrent_file, remote_file, opts['retry']))
     for thread in threads:
         host = thread.wait()
@@ -130,24 +135,32 @@ def transfer(host, local_file, remote_target, retry=0):
     return host
 
 
-def ssh(host, command):
+#def ssh(host, command):
+#    if not os.path.exists(opts['log_dir']):
+#        os.makedirs(opts['log_dir'])
+#        
+#    with open("%s%s%s-ssh.log" % (opts['log_dir'], os.path.sep, host), 'a') as log:
+#        result = subprocess.call(['ssh', '-o UserKnownHostsFile=/dev/null',
+#                '-o LogLevel=quiet',
+#                '-o StrictHostKeyChecking=no',
+#                host, command], stdout=log,
+#                stderr=log)
+#    return result
+
+def ssh(host,command):
+    global password
     if not os.path.exists(opts['log_dir']):
         os.makedirs(opts['log_dir'])
-        
-    with open("%s%s%s-ssh.log" % (opts['log_dir'], os.path.sep, host), 'a') as log:
-        result = subprocess.call(['ssh', '-o UserKnownHostsFile=/dev/null',
-                '-o LogLevel=quiet',
-                '-o StrictHostKeyChecking=no',
-                host, command], stdout=log,
-                stderr=log)
+
+    incommand =  ['sshpass','-p',password,'ssh',host,command]
+    result = subprocess.call(incommand)
+    print ('SSH complete')
     return result
 
-
 def scp(host, local_file, remote_file):
-    return subprocess.call(['scp', '-o UserKnownHostsFile=/dev/null',
-                '-o StrictHostKeyChecking=no',
-                local_file, '%s:%s' % (host, remote_file)],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    incommand=['sshpass','-p',password,'scp',local_file,'%s:%s' %(host,remote_file)]
+    print(incommand)
+    return subprocess.call(incommand,stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def mktorrent(file_name, tracker):
@@ -171,6 +184,13 @@ def local_ip():
     s.connect(("10.1.0.0", 0))
     return s.getsockname()[0]
 
+def parseconfig():  
+    config= configparser.ConfigParser()
+    config.read('info.ini')
+    global username;
+    username=config.get('USER','user').strip('"')
+    global password
+    password=config.get('USER','password').strip('"')
 
 def  herdmain():
     if not os.path.exists(opts['hosts']) and opts['hostlist'] is False:
@@ -184,6 +204,7 @@ def  herdmain():
         hosts = opts['hostlist'].split(',')
     # handles duplicates
     hosts = list(set(hosts))
+    parseconfig()
     log.info("Running with options: %s" % opts)
     log.info("Running for hosts: %s" % hosts)
     run(opts['local-file'], opts['remote-file'], hosts)
